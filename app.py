@@ -351,55 +351,77 @@ if st.button("🔮 PREDICI MATCH"):
     # 4. Final
     final_prob = (prob_ml * (1 - PRIOR_WEIGHT)) + (prob_prior * PRIOR_WEIGHT)
     
-    # 5. Visualizzazione
+    # =========================================================================
+    # 5. VISUALIZZAZIONE RISULTATO AI
+    # =========================================================================
     st.divider()
-    w_name = p1_name if final_prob > 0.5 else p2_name
-    w_prob = final_prob if final_prob > 0.5 else 1 - final_prob
     
-    st.subheader(f"🏆 Vincitore Previsto: {w_name}")
-    st.progress(w_prob)
+    # Determiniamo chi è il "Prescelto" dal sistema
+    if prob_p1_final > 0.5:
+        system_pick = p1_name
+        system_prob = prob_p1_final
+        system_odds = quota_p1
+        loser_pick = p2_name
+        loser_prob = prob_p2_final
+    else:
+        system_pick = p2_name
+        system_prob = prob_p2_final
+        system_odds = quota_p2
+        loser_pick = p1_name
+        loser_prob = prob_p1_final
+
+    st.subheader(f"🧠 Il Sistema sceglie: {system_pick}")
     
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Probabilità Totale", f"{w_prob:.1%}")
-    c2.metric("Componente ML (XGB)", f"{prob_ml if final_prob > 0.5 else 1-prob_ml:.1%}")
-    c3.metric("Componente Prior (Forma)", f"{prob_prior if final_prob > 0.5 else 1-prob_prior:.1%}")
-    
-    st.caption("Nota: La 'Componente Prior' usa la finestra temporale di 18 mesi con il peso modificato a 0.51.")
+    # Barra grafica
+    st.progress(prob_p1_final)
+    c1, c2 = st.columns([1,1])
+    c1.caption(f"{p1_name}: {prob_p1_final:.1%}")
+    c2.caption(f"{p2_name}: {prob_p2_final:.1%}")
 
     # =========================================================================
-    # 6. MODULO KELLY (INPUT MANUALE)
+    # 6. MODULO KELLY DIREZIONALE (SOLO SUL VINCENTE)
     # =========================================================================
     st.markdown("---")
-    st.subheader("💰 Gestione Scommessa (Kelly)")
+    st.header("💰 Calcolo Puntata (Kelly)")
 
-    # Input Quota e Calcoli
-    kc1, kc2, kc3 = st.columns(3)
+    # 1. Calcolo Edge SOLO sulla scelta del sistema
+    edge = (system_prob * system_odds) - 1
     
-    with kc1:
-        st.metric("Bankroll", f"{cassa_attuale:.2f} €")
+    # La soglia min_edge nella sidebar è tipo 1.05 (che significa +5% edge)
+    # Quindi l'edge matematico deve essere > 0.05
+    min_edge_val = min_edge - 1.0 
+
+    col_k1, col_k2 = st.columns(2)
     
-    with kc2:
-        # QUI C'È IL CAMPO DOVE INSERISCI TU LA QUOTA
-        quota = st.number_input(f"Inserisci Quota Reale per {w_name}", value=2.00, step=0.01, format="%.2f")
-    
-    # Calcolo Kelly
-    edge = (w_prob * quota) - 1
-    
-    if edge > (min_edge - 1):
-        b = quota - 1
-        q = 1 - w_prob
-        f = (b * w_prob - q) / b
-        stake_pct = max(0, min(f * kelly_fraction, max_stake_pct))
-        stake_euro = cassa_attuale * stake_pct
+    with col_k1:
+        st.metric("Tuo Bankroll", f"{cassa_attuale:.2f} €")
+        st.write(f"Probabilità AI: **{system_prob:.1%}**")
+        st.write(f"Quota Bookmaker: **{system_odds:.2f}**")
+
+    with col_k2:
+        # LOGICA RIGIDA: Si gioca solo se Edge è positivo E superiore al minimo
+        if edge >= min_edge_val:
+            # Formula Kelly
+            b = system_odds - 1
+            q = 1 - system_prob
+            f = (b * system_prob - q) / b
+            
+            # Applicazione Frazione e Limiti
+            stake_pct = max(0, min(f * kelly_fraction, max_stake_pct))
+            stake_euro = cassa_attuale * stake_pct
+            
+            st.success(f"✅ **PUNTARE SU {system_pick.upper()}**")
+            st.metric("Importo Puntata", f"{stake_euro:.2f} €")
+            st.caption(f"ROI Atteso: +{edge*100:.2f}% | Stake: {stake_pct*100:.2f}% del roll")
         
-        with kc3:
-            st.metric("Valore (Edge)", f"+{edge*100:.2f}%")
-        
-        st.success(f"✅ **PUNTARE {stake_euro:.2f} €** ({stake_pct*100:.2f}% del Bankroll)")
-        st.caption(f"Il modello vede valore perché la probabilità stimata ({w_prob:.1%}) è maggiore della probabilità implicita nella quota ({1/quota:.1%}).")
-    
-    else:
-        with kc3:
-            st.metric("Valore (Edge)", f"{edge*100:.2f}%", delta_color="inverse")
-        st.error("🛑 **NESSUNA PUNTATA (No Value)**")
-        st.caption(f"La quota offerta ({quota}) è troppo bassa rispetto al rischio calcolato.")
+        else:
+            # Caso No Bet
+            st.error("🛑 **NESSUNA PUNTATA (No Value)**")
+            
+            if edge < 0:
+                st.write(f"Motivo: La quota {system_odds} non copre il rischio (Prob {system_prob:.1%}).")
+            else:
+                st.write(f"Motivo: Edge ({edge*100:.2f}%) inferiore al minimo richiesto ({(min_edge-1)*100:.0f}%).")
+            
+            required_odds = (1 + min_edge_val) / system_prob
+            st.info(f"💡 Per puntare su {system_pick} servirebbe una quota minima di **{required_odds:.2f}**")
