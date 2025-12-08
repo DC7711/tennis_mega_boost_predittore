@@ -6,11 +6,11 @@ from collections import defaultdict
 from sklearn.calibration import CalibratedClassifierCV
 
 # =========================================================================
-# CONFIGURAZIONE PAGINA E COSTANTI UTENTE
+# CONFIGURAZIONE PAGINA
 # =========================================================================
 st.set_page_config(page_title="Tennis AI v6.2 + Kelly", page_icon="🎾", layout="wide")
 
-# --- I TUOI PARAMETRI SPECIFICI ---
+# --- COSTANTI UTENTE ---
 CURRENT_PREDICTION_DATE = pd.to_datetime("2025-12-08") 
 K_BASE = 10 
 MIN_MATCHES_PRIOR = 5
@@ -21,21 +21,6 @@ MIN_RANK_SAFETY = 1800.0
 
 TOURNEY_WEIGHTS = {'G': 3.0, 'M': 2.0, 'A': 0.4, '500': 1.8, '250': 1.4, 'C': 0.7, 'F': 0.5, 'D': 1.3}
 TOURNEY_NUMERIC_MAP = {'G': 4.0, 'M': 3.0, '500': 2.0, 'A': 0.3, '250': 1.0, 'D': 1.0, 'C': 0.5, 'F': 0.2}
-
-# =========================================================================
-# 1. SIDEBAR: IMPOSTAZIONI KELLY & BANKROLL (INPUT MANUALE)
-# =========================================================================
-with st.sidebar:
-    st.header("🏦 Gestione Bankroll")
-    
-    # INPUT MANUALE DEL BANKROLL
-    cassa_attuale = st.number_input("Il tuo Bankroll Attuale (€)", min_value=0.0, value=1000.0, step=10.0, format="%.2f")
-    
-    st.markdown("---")
-    st.subheader("⚙️ Parametri Rischio")
-    kelly_fraction = st.slider("Frazione Kelly", 0.1, 1.0, 0.25, 0.05, help="Quanto aggressivo vuoi essere? 0.25 è prudente.")
-    max_stake_pct = st.slider("Max Stake (%)", 0.01, 0.20, 0.05, 0.01, help="Non puntare mai più di questa % del bankroll.")
-    min_edge = st.number_input("Edge Minimo", 1.01, 1.20, 1.05, help="Scommetti solo se il valore atteso supera questa soglia.")
 
 # =========================================================================
 # FUNZIONI DI UTILITY
@@ -53,12 +38,12 @@ def get_avg_stats(pid, d, default):
     return np.mean(d[pid][-MIN_MATCHES_STATS:])
 
 # =========================================================================
-# LOGICA CORE (CACHEATA PER VELOCITÀ)
+# LOGICA CORE (CACHEATA)
 # =========================================================================
 @st.cache_resource
 def load_and_train():
     status = st.empty()
-    status.info("⏳ Caricamento database e training modello... (richiede circa 30-60 secondi)")
+    status.info("⏳ Caricamento database e training modello... (Attendere)")
     
     # 1. CARICAMENTO DATI
     BASE_URL = 'https://raw.githubusercontent.com/Tennismylife/TML-Database/master/'
@@ -96,7 +81,6 @@ def load_and_train():
     elo = defaultdict(lambda: 1500)
     elo_surf = {"Hard": defaultdict(lambda: 1500), "Clay": defaultdict(lambda: 1500), "Grass": defaultdict(lambda: 1500)}
     
-    # Dizionari Stats
     stats_dicts = {
         '1st_in': defaultdict(list), '1st_won': defaultdict(list), '2nd_won': defaultdict(list),
         'return': defaultdict(list), 'bp_save': defaultdict(list), 'bp_conv': defaultdict(list),
@@ -123,7 +107,6 @@ def load_and_train():
         w, l = r.w_key, r.l_key
         surf = r.surface if r.surface in ["Hard", "Clay", "Grass"] else "Hard"
         
-        # Stats Pre-Match
         ew, el = elo.get(w, 1500), elo.get(l, 1500)
         esw, esl = elo_surf[surf].get(w, 1500), elo_surf[surf].get(l, 1500)
         
@@ -179,7 +162,6 @@ def load_and_train():
         }
         rows.append(row)
 
-        # Aggiornamento Post-Match
         Kw = K_BASE * TOURNEY_WEIGHTS.get(lvl_code, 1.0)
         ex, sx = exp(ew, el), exp(esw, esl)
         elo[w] += Kw * (1-ex); elo[l] -= Kw * ex
@@ -193,7 +175,6 @@ def load_and_train():
         w_bpf = r.get('w_bpFaced', 1)
         l_conv = (w_bpf - r.get('w_bpSaved',0))/w_bpf if w_bpf>0 else 0.40
         
-        # Append stats
         stats_dicts['1st_in'][w].append(ws[0]); stats_dicts['1st_in'][l].append(ls[0])
         stats_dicts['1st_won'][w].append(ws[1]); stats_dicts['1st_won'][l].append(ls[1])
         stats_dicts['2nd_won'][w].append(ws[2]); stats_dicts['2nd_won'][l].append(ls[2])
@@ -212,7 +193,6 @@ def load_and_train():
     ML = pd.DataFrame(rows).fillna(0)
     ML = pd.get_dummies(ML, columns=['surface'], prefix='surface')
     
-    # 3. TRAINING
     features = [c for c in ML.columns if c not in ['tourney_date', 'target']]
     split_date = pd.to_datetime("2025-09-01")
     mask = ML["tourney_date"] < split_date
@@ -237,7 +217,6 @@ def load_and_train():
 
     status.success("✅ Modello Allenato con Successo!")
     
-    # Return everything needed for prediction
     return predictor, df, elo, elo_surf, stats_dicts, features
 
 # Caricamento Modello
@@ -247,19 +226,43 @@ predictor, df, elo, elo_surf, stats_dicts, features = load_and_train()
 # UI INTERFACCIA
 # =========================================================================
 st.title("🎾 Tennis AI v6.2 - Web App")
-st.markdown(f"**Current Date:** {CURRENT_PREDICTION_DATE.date()} | **Prior Weight:** {PRIOR_WEIGHT} | **Prior Multiplier:** 0.8")
+st.markdown(f"**Data Predizione:** {CURRENT_PREDICTION_DATE.date()} | **Prior Weight:** {PRIOR_WEIGHT}")
 
+# --- SELEZIONE GIOCATORI (MAIN) ---
+# È importante che siano qui perché la Sidebar userà i loro nomi
 col1, col2 = st.columns(2)
+all_players = sorted(list(set(df['winner_name'].unique()) | set(df['loser_name'].unique())))
+
 with col1:
-    all_players = sorted(list(set(df['winner_name'].unique()) | set(df['loser_name'].unique())))
     p1_name = st.selectbox("Giocatore 1", all_players, index=all_players.index("Jannik Sinner") if "Jannik Sinner" in all_players else 0)
-    p2_name = st.selectbox("Giocatore 2", all_players, index=all_players.index("Carlos Alcaraz") if "Carlos Alcaraz" in all_players else 0)
 
 with col2:
-    surface = st.selectbox("Superficie", ["Hard", "Clay", "Grass"])
-    level = st.selectbox("Livello Torneo", ["G", "M", "500", "250", "A", "C", "F"])
-    is_indoor = st.checkbox("Indoor")
-    is_bo5 = st.checkbox("Best of 5 Sets", value=(level=="G"))
+    p2_name = st.selectbox("Giocatore 2", all_players, index=all_players.index("Carlos Alcaraz") if "Carlos Alcaraz" in all_players else 0)
+
+# --- SIDEBAR: GESTIONE BANKROLL E QUOTE (RICHIESTA UTENTE) ---
+with st.sidebar:
+    st.header("🏦 Gestione Bankroll")
+    cassa_attuale = st.number_input("Bankroll (€)", min_value=0.0, value=1000.0, step=10.0, format="%.2f")
+    
+    st.markdown("---")
+    st.subheader("📊 Quote Bookmaker")
+    # Qui inseriamo le quote usando i nomi selezionati sopra
+    quota_p1 = st.number_input(f"Quota {p1_name}", min_value=1.01, value=1.50, step=0.01, format="%.2f")
+    quota_p2 = st.number_input(f"Quota {p2_name}", min_value=1.01, value=2.50, step=0.01, format="%.2f")
+
+    st.markdown("---")
+    st.subheader("⚙️ Parametri Kelly")
+    kelly_fraction = st.slider("Frazione Kelly", 0.1, 1.0, 0.25, 0.05, help="Quanto aggressivo vuoi essere?")
+    max_stake_pct = st.slider("Max Stake (%)", 0.01, 0.20, 0.05, 0.01)
+    min_edge = st.number_input("Edge Minimo", 1.01, 1.20, 1.05, help="Soglia minima di valore.")
+
+# --- DETTAGLI MATCH (MAIN) ---
+st.markdown("---")
+cd1, cd2, cd3, cd4 = st.columns(4)
+with cd1: surface = st.selectbox("Superficie", ["Hard", "Clay", "Grass"])
+with cd2: level = st.selectbox("Livello", ["G", "M", "500", "250", "A", "C", "F"])
+with cd3: is_indoor = st.checkbox("Indoor")
+with cd4: is_bo5 = st.checkbox("Best of 5 Sets", value=(level=="G"))
 
 # =========================================================================
 # LOGICA PREDIZIONE
@@ -289,11 +292,11 @@ def get_smart_prior_components(player_key, surface_key, is_bo5, data_df_prior):
     if is_bo5 and prob > 0.55: prob = np.clip(prob + 0.01, 0.05, 0.95)
     return prob
 
-if st.button("🔮 PREDICI MATCH"):
+if st.button("🔮 PREDICI E CALCOLA STAKE"):
     k1, k2 = key(p1_name), key(p2_name)
     surf_key = surface if surface in ["Hard", "Clay", "Grass"] else "Hard"
     
-    # 1. Recupero Dati
+    # 1. RECUPERO DATI
     def get_latest(k):
         ms = df[(df.w_key==k)|(df.l_key==k)]
         if ms.empty: return MIN_RANK_SAFETY, 25.0, 'R'
@@ -305,7 +308,7 @@ if st.button("🔮 PREDICI MATCH"):
     p2r, p2a, p2h = get_latest(k2)
     p1r = np.clip(p1r, 1, MIN_RANK_SAFETY); p2r = np.clip(p2r, 1, MIN_RANK_SAFETY)
     
-    # 2. ML Prediction
+    # 2. ML PREDICTION
     stats_k = ['1st_in', '1st_won', '2nd_won', 'return', 'bp_save', 'bp_conv', 'minutes']
     defaults = [0.6, 0.7, 0.5, 0.38, 0.6, 0.4, 90]
     
@@ -332,7 +335,7 @@ if st.button("🔮 PREDICI MATCH"):
             
     prob_ml = predictor.predict_proba(df_in[features])[0][1]
     
-    # 3. Prior
+    # 3. PRIOR CALCULATION
     start_prior = CURRENT_PREDICTION_DATE - pd.DateOffset(months=PRIOR_WINDOW_MONTHS)
     df_prior = df[df['tourney_date'] >= start_prior].copy()
     
@@ -348,15 +351,16 @@ if st.button("🔮 PREDICI MATCH"):
     prob_prior = (w_l_prior * 0.90) + (prob_surf_base * 0.08) + (prob_elo_base * 0.02)
     prob_prior = np.clip(prob_prior, 0.05, 0.95)
     
-    # 4. Final
-    final_prob = (prob_ml * (1 - PRIOR_WEIGHT)) + (prob_prior * PRIOR_WEIGHT)
+    # 4. FINAL PROBABILITY
+    prob_p1_final = (prob_ml * (1 - PRIOR_WEIGHT)) + (prob_prior * PRIOR_WEIGHT)
+    prob_p2_final = 1.0 - prob_p1_final
     
     # =========================================================================
-    # 5. VISUALIZZAZIONE RISULTATO AI
+    # 5. VISUALIZZAZIONE & KELLY
     # =========================================================================
     st.divider()
     
-    # Determiniamo chi è il "Prescelto" dal sistema
+    # Chi è il favorito del sistema?
     if prob_p1_final > 0.5:
         system_pick = p1_name
         system_prob = prob_p1_final
@@ -372,23 +376,18 @@ if st.button("🔮 PREDICI MATCH"):
 
     st.subheader(f"🧠 Il Sistema sceglie: {system_pick}")
     
-    # Barra grafica
     st.progress(prob_p1_final)
     c1, c2 = st.columns([1,1])
     c1.caption(f"{p1_name}: {prob_p1_final:.1%}")
     c2.caption(f"{p2_name}: {prob_p2_final:.1%}")
 
-    # =========================================================================
-    # 6. MODULO KELLY DIREZIONALE (SOLO SUL VINCENTE)
-    # =========================================================================
+    # --- KELLY ---
     st.markdown("---")
     st.header("💰 Calcolo Puntata (Kelly)")
 
-    # 1. Calcolo Edge SOLO sulla scelta del sistema
+    # Calcolo Edge SOLO sulla scelta del sistema
     edge = (system_prob * system_odds) - 1
     
-    # La soglia min_edge nella sidebar è tipo 1.05 (che significa +5% edge)
-    # Quindi l'edge matematico deve essere > 0.05
     min_edge_val = min_edge - 1.0 
 
     col_k1, col_k2 = st.columns(2)
@@ -399,14 +398,12 @@ if st.button("🔮 PREDICI MATCH"):
         st.write(f"Quota Bookmaker: **{system_odds:.2f}**")
 
     with col_k2:
-        # LOGICA RIGIDA: Si gioca solo se Edge è positivo E superiore al minimo
         if edge >= min_edge_val:
             # Formula Kelly
             b = system_odds - 1
             q = 1 - system_prob
             f = (b * system_prob - q) / b
             
-            # Applicazione Frazione e Limiti
             stake_pct = max(0, min(f * kelly_fraction, max_stake_pct))
             stake_euro = cassa_attuale * stake_pct
             
@@ -415,13 +412,9 @@ if st.button("🔮 PREDICI MATCH"):
             st.caption(f"ROI Atteso: +{edge*100:.2f}% | Stake: {stake_pct*100:.2f}% del roll")
         
         else:
-            # Caso No Bet
             st.error("🛑 **NESSUNA PUNTATA (No Value)**")
-            
             if edge < 0:
-                st.write(f"Motivo: La quota {system_odds} non copre il rischio (Prob {system_prob:.1%}).")
+                st.write(f"La quota {system_odds} non copre il rischio.")
             else:
-                st.write(f"Motivo: Edge ({edge*100:.2f}%) inferiore al minimo richiesto ({(min_edge-1)*100:.0f}%).")
-            
-            required_odds = (1 + min_edge_val) / system_prob
-            st.info(f"💡 Per puntare su {system_pick} servirebbe una quota minima di **{required_odds:.2f}**")
+                st.write(f"Edge insufficiente.")
+            st.info(f"Serve quota > {1/system_prob*(1+min_edge_val):.2f}")
