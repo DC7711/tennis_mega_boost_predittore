@@ -8,19 +8,35 @@ from sklearn.calibration import CalibratedClassifierCV
 # =========================================================================
 # CONFIGURAZIONE PAGINA E COSTANTI UTENTE
 # =========================================================================
-st.set_page_config(page_title="Tennis AI v6.2 Web", page_icon="🎾", layout="wide")
+st.set_page_config(page_title="Tennis AI v6.2 + Kelly", page_icon="🎾", layout="wide")
 
 # --- I TUOI PARAMETRI SPECIFICI ---
 CURRENT_PREDICTION_DATE = pd.to_datetime("2025-12-08") 
 K_BASE = 10 
 MIN_MATCHES_PRIOR = 5
 MIN_MATCHES_STATS = 10 
-PRIOR_WEIGHT = 0.51  # >>> IL TUO PESO MODIFICATO
+PRIOR_WEIGHT = 0.51  
 PRIOR_WINDOW_MONTHS = 18 
 MIN_RANK_SAFETY = 1800.0 
 
 TOURNEY_WEIGHTS = {'G': 3.0, 'M': 2.0, 'A': 0.4, '500': 1.8, '250': 1.4, 'C': 0.7, 'F': 0.5, 'D': 1.3}
 TOURNEY_NUMERIC_MAP = {'G': 4.0, 'M': 3.0, '500': 2.0, 'A': 0.3, '250': 1.0, 'D': 1.0, 'C': 0.5, 'F': 0.2}
+
+# =========================================================================
+# 1. SIDEBAR: IMPOSTAZIONI KELLY & BANKROLL (NUOVA SEZIONE)
+# =========================================================================
+with st.sidebar:
+    st.header("🏦 Gestione Bankroll")
+    
+    # URL GitHub
+    default_url = "https://raw.githubusercontent.com/TUO_USER/TUO_REPO/main/my_bankroll.csv"
+    github_url = st.text_input("URL CSV GitHub (Raw)", value=default_url)
+    
+    st.markdown("---")
+    st.subheader("⚙️ Parametri Rischio")
+    kelly_fraction = st.slider("Frazione Kelly", 0.1, 1.0, 0.25, 0.05, help="Quanto aggressivo vuoi essere? 0.25 è prudente.")
+    max_stake_pct = st.slider("Max Stake (%)", 0.01, 0.20, 0.05, 0.01, help="Non puntare mai più di questa % del bankroll.")
+    min_edge = st.number_input("Edge Minimo", 1.01, 1.20, 1.05, help="Scommetti solo se il valore atteso supera questa soglia.")
 
 # =========================================================================
 # FUNZIONI DI UTILITY
@@ -36,6 +52,16 @@ def exp(a, b):
 def get_avg_stats(pid, d, default):
     if len(d[pid]) == 0: return default
     return np.mean(d[pid][-MIN_MATCHES_STATS:])
+
+# Funzione per caricare il Bankroll (Nuova)
+@st.cache_data(ttl=60) # Cache per 60 secondi per non bloccare Github
+def fetch_bankroll(url):
+    try:
+        if "TUO_USER" in url: return 1000.0 # Fallback se l'url non è stato cambiato
+        df = pd.read_csv(url)
+        return float(df.iloc[-1]['current_bankroll'])
+    except Exception as e:
+        return 1000.0 # Fallback di sicurezza
 
 # =========================================================================
 # LOGICA CORE (CACHEATA PER VELOCITÀ)
@@ -353,3 +379,43 @@ if st.button("🔮 PREDICI MATCH"):
     c3.metric("Componente Prior (Forma)", f"{prob_prior if final_prob > 0.5 else 1-prob_prior:.1%}")
     
     st.caption("Nota: La 'Componente Prior' usa la finestra temporale di 18 mesi con il peso modificato a 0.51.")
+
+    # =========================================================================
+    # 6. MODULO KELLY INTEGRATO (NUOVA SEZIONE)
+    # =========================================================================
+    st.markdown("---")
+    st.subheader("💰 Gestione Scommessa (Kelly)")
+
+    # Recupera Bankroll
+    cassa_attuale = fetch_bankroll(github_url)
+
+    # Input Quota e Calcoli
+    kc1, kc2, kc3 = st.columns(3)
+    
+    with kc1:
+        st.metric("Bankroll GitHub", f"{cassa_attuale:.2f} €")
+    
+    with kc2:
+        quota = st.number_input(f"Quota Bookmaker per {w_name}", value=1.50, step=0.01, format="%.2f")
+    
+    # Calcolo Kelly
+    edge = (w_prob * quota) - 1
+    
+    if edge > (min_edge - 1):
+        b = quota - 1
+        q = 1 - w_prob
+        f = (b * w_prob - q) / b
+        stake_pct = max(0, min(f * kelly_fraction, max_stake_pct))
+        stake_euro = cassa_attuale * stake_pct
+        
+        with kc3:
+            st.metric("Valore (Edge)", f"+{edge*100:.2f}%")
+        
+        st.success(f"✅ **PUNTARE {stake_euro:.2f} €** ({stake_pct*100:.2f}% del Bankroll)")
+        st.caption(f"Il modello vede valore perché la probabilità stimata ({w_prob:.1%}) è maggiore della probabilità implicita nella quota ({1/quota:.1%}).")
+    
+    else:
+        with kc3:
+            st.metric("Valore (Edge)", f"{edge*100:.2f}%", delta_color="inverse")
+        st.error("🛑 **NESSUNA PUNTATA (No Value)**")
+        st.caption(f"La quota offerta ({quota}) è troppo bassa rispetto al rischio calcolato.")
