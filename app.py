@@ -23,7 +23,7 @@ TOURNEY_WEIGHTS = {'G': 3.0, 'M': 2.0, 'A': 0.4, '500': 1.8, '250': 1.4, 'C': 0.
 TOURNEY_NUMERIC_MAP = {'G': 4.0, 'M': 3.0, '500': 2.0, 'A': 0.3, '250': 1.0, 'D': 1.0, 'C': 0.5, 'F': 0.2}
 
 # =========================================================================
-# 1. SIDEBAR: IMPOSTAZIONI KELLY & BANKROLL (MODIFICATO: INPUT MANUALE)
+# 1. SIDEBAR: IMPOSTAZIONI KELLY & BANKROLL (INPUT MANUALE)
 # =========================================================================
 with st.sidebar:
     st.header("🏦 Gestione Bankroll")
@@ -251,7 +251,6 @@ st.markdown(f"**Current Date:** {CURRENT_PREDICTION_DATE.date()} | **Prior Weigh
 
 col1, col2 = st.columns(2)
 with col1:
-    # Autocomplete player names
     all_players = sorted(list(set(df['winner_name'].unique()) | set(df['loser_name'].unique())))
     p1_name = st.selectbox("Giocatore 1", all_players, index=all_players.index("Jannik Sinner") if "Jannik Sinner" in all_players else 0)
     p2_name = st.selectbox("Giocatore 2", all_players, index=all_players.index("Carlos Alcaraz") if "Carlos Alcaraz" in all_players else 0)
@@ -263,7 +262,7 @@ with col2:
     is_bo5 = st.checkbox("Best of 5 Sets", value=(level=="G"))
 
 # =========================================================================
-# LOGICA PREDIZIONE (ADATTATA PER WEB)
+# LOGICA PREDIZIONE
 # =========================================================================
 def get_smart_prior_components(player_key, surface_key, is_bo5, data_df_prior):
     recent_matches = data_df_prior[
@@ -294,7 +293,7 @@ if st.button("🔮 PREDICI MATCH"):
     k1, k2 = key(p1_name), key(p2_name)
     surf_key = surface if surface in ["Hard", "Clay", "Grass"] else "Hard"
     
-    # 1. Recupero Dati Stats e Rank (Latest)
+    # 1. Recupero Dati
     def get_latest(k):
         ms = df[(df.w_key==k)|(df.l_key==k)]
         if ms.empty: return MIN_RANK_SAFETY, 25.0, 'R'
@@ -328,21 +327,19 @@ if st.button("🔮 PREDICI MATCH"):
     for s in ['Hard', 'Clay', 'Grass', 'Carpet']: row[f'surface_{s}'] = 1 if s == surf_key else 0
     
     df_in = pd.DataFrame([row])
-    # Ensure correct columns order
     for c in features: 
         if c not in df_in.columns: df_in[c] = 0
             
     prob_ml = predictor.predict_proba(df_in[features])[0][1]
     
-    # 3. Prior Calculation (Tuo Codice Custom)
+    # 3. Prior
     start_prior = CURRENT_PREDICTION_DATE - pd.DateOffset(months=PRIOR_WINDOW_MONTHS)
     df_prior = df[df['tourney_date'] >= start_prior].copy()
     
     p1_w_pct = get_smart_prior_components(k1, surf_key, is_bo5, df_prior)
     p2_w_pct = get_smart_prior_components(k2, surf_key, is_bo5, df_prior)
     
-    # >>> LA TUA FORMULA SPECIFICA <<<
-    w_l_prior = 0.5 + (p1_w_pct - p2_w_pct) * 0.8  # Moltiplicatore 0.8
+    w_l_prior = 0.5 + (p1_w_pct - p2_w_pct) * 0.8  
     w_l_prior = np.clip(w_l_prior, 0.05, 0.95)
     
     prob_elo_base = exp(elo[k2], elo[k1])
@@ -351,10 +348,10 @@ if st.button("🔮 PREDICI MATCH"):
     prob_prior = (w_l_prior * 0.90) + (prob_surf_base * 0.08) + (prob_elo_base * 0.02)
     prob_prior = np.clip(prob_prior, 0.05, 0.95)
     
-    # 4. Final Merge
+    # 4. Final
     final_prob = (prob_ml * (1 - PRIOR_WEIGHT)) + (prob_prior * PRIOR_WEIGHT)
     
-    # 5. Visualizzazione Risultati
+    # 5. Visualizzazione
     st.divider()
     w_name = p1_name if final_prob > 0.5 else p2_name
     w_prob = final_prob if final_prob > 0.5 else 1 - final_prob
@@ -370,7 +367,7 @@ if st.button("🔮 PREDICI MATCH"):
     st.caption("Nota: La 'Componente Prior' usa la finestra temporale di 18 mesi con il peso modificato a 0.51.")
 
     # =========================================================================
-    # 6. MODULO KELLY INTEGRATO
+    # 6. MODULO KELLY (INPUT MANUALE)
     # =========================================================================
     st.markdown("---")
     st.subheader("💰 Gestione Scommessa (Kelly)")
@@ -379,10 +376,11 @@ if st.button("🔮 PREDICI MATCH"):
     kc1, kc2, kc3 = st.columns(3)
     
     with kc1:
-        st.metric("Bankroll Attuale", f"{cassa_attuale:.2f} €")
+        st.metric("Bankroll", f"{cassa_attuale:.2f} €")
     
     with kc2:
-        quota = st.number_input(f"Quota Bookmaker per {w_name}", value=1.50, step=0.01, format="%.2f")
+        # QUI C'È IL CAMPO DOVE INSERISCI TU LA QUOTA
+        quota = st.number_input(f"Inserisci Quota Reale per {w_name}", value=2.00, step=0.01, format="%.2f")
     
     # Calcolo Kelly
     edge = (w_prob * quota) - 1
