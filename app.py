@@ -23,14 +23,13 @@ TOURNEY_WEIGHTS = {'G': 3.0, 'M': 2.0, 'A': 0.4, '500': 1.8, '250': 1.4, 'C': 0.
 TOURNEY_NUMERIC_MAP = {'G': 4.0, 'M': 3.0, '500': 2.0, 'A': 0.3, '250': 1.0, 'D': 1.0, 'C': 0.5, 'F': 0.2}
 
 # =========================================================================
-# 1. SIDEBAR: IMPOSTAZIONI KELLY & BANKROLL (NUOVA SEZIONE)
+# 1. SIDEBAR: IMPOSTAZIONI KELLY & BANKROLL (MODIFICATO: INPUT MANUALE)
 # =========================================================================
 with st.sidebar:
     st.header("🏦 Gestione Bankroll")
     
-    # URL GitHub
-    default_url = "https://raw.githubusercontent.com/TUO_USER/TUO_REPO/main/my_bankroll.csv"
-    github_url = st.text_input("URL CSV GitHub (Raw)", value=default_url)
+    # INPUT MANUALE DEL BANKROLL
+    cassa_attuale = st.number_input("Il tuo Bankroll Attuale (€)", min_value=0.0, value=1000.0, step=10.0, format="%.2f")
     
     st.markdown("---")
     st.subheader("⚙️ Parametri Rischio")
@@ -52,16 +51,6 @@ def exp(a, b):
 def get_avg_stats(pid, d, default):
     if len(d[pid]) == 0: return default
     return np.mean(d[pid][-MIN_MATCHES_STATS:])
-
-# Funzione per caricare il Bankroll (Nuova)
-@st.cache_data(ttl=60) # Cache per 60 secondi per non bloccare Github
-def fetch_bankroll(url):
-    try:
-        if "TUO_USER" in url: return 1000.0 # Fallback se l'url non è stato cambiato
-        df = pd.read_csv(url)
-        return float(df.iloc[-1]['current_bankroll'])
-    except Exception as e:
-        return 1000.0 # Fallback di sicurezza
 
 # =========================================================================
 # LOGICA CORE (CACHEATA PER VELOCITÀ)
@@ -381,19 +370,16 @@ if st.button("🔮 PREDICI MATCH"):
     st.caption("Nota: La 'Componente Prior' usa la finestra temporale di 18 mesi con il peso modificato a 0.51.")
 
     # =========================================================================
-    # 6. MODULO KELLY INTEGRATO (NUOVA SEZIONE)
+    # 6. MODULO KELLY INTEGRATO
     # =========================================================================
     st.markdown("---")
     st.subheader("💰 Gestione Scommessa (Kelly)")
-
-    # Recupera Bankroll
-    cassa_attuale = fetch_bankroll(github_url)
 
     # Input Quota e Calcoli
     kc1, kc2, kc3 = st.columns(3)
     
     with kc1:
-        st.metric("Bankroll GitHub", f"{cassa_attuale:.2f} €")
+        st.metric("Bankroll Attuale", f"{cassa_attuale:.2f} €")
     
     with kc2:
         quota = st.number_input(f"Quota Bookmaker per {w_name}", value=1.50, step=0.01, format="%.2f")
