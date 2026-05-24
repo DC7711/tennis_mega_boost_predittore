@@ -335,7 +335,7 @@ if st.button("🔮 PREDICI E CALCOLA STAKE"):
             
     prob_ml = predictor.predict_proba(df_in[features])[0][1]
     
-    # 3. PRIOR CALCULATION
+# 3. PRIOR CALCULATION
     start_prior = CURRENT_PREDICTION_DATE - pd.DateOffset(months=PRIOR_WINDOW_MONTHS)
     df_prior = df[df['tourney_date'] >= start_prior].copy()
     
@@ -351,8 +351,12 @@ if st.button("🔮 PREDICI E CALCOLA STAKE"):
     prob_prior = (w_l_prior * 0.90) + (prob_surf_base * 0.08) + (prob_elo_base * 0.02)
     prob_prior = np.clip(prob_prior, 0.05, 0.95)
     
-    # 4. FINAL PROBABILITY
-    prob_p1_final = (prob_ml * (1 - PRIOR_WEIGHT)) + (prob_prior * PRIOR_WEIGHT)
+    # 4. FINAL PROBABILITY (prior adattivo)
+    n1 = len(df[(df.w_key == k1) | (df.l_key == k1)])
+    n2 = len(df[(df.w_key == k2) | (df.l_key == k2)])
+    n_min = min(n1, n2)  # usa il giocatore con meno dati
+    adaptive_prior = max(0.20, min(0.60, 1 / (1 + n_min / 30)))
+    prob_p1_final = (prob_ml * (1 - adaptive_prior)) + (prob_prior * adaptive_prior)
     prob_p2_final = 1.0 - prob_p1_final
     
     # =========================================================================
