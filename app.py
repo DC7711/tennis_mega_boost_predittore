@@ -11,7 +11,7 @@ from sklearn.calibration import CalibratedClassifierCV
 st.set_page_config(page_title="Tennis AI v6.2 + Kelly", page_icon="🎾", layout="wide")
 
 # --- COSTANTI UTENTE ---
-CURRENT_PREDICTION_DATE = pd.to_datetime("2025-12-08") 
+CURRENT_PREDICTION_DATE = pd.Timestamp.today()  # data reale
 K_BASE = 10 
 MIN_MATCHES_PRIOR = 5
 MIN_MATCHES_STATS = 10 
@@ -47,7 +47,7 @@ def load_and_train():
     
     # 1. CARICAMENTO DATI
     BASE_URL = 'https://raw.githubusercontent.com/Tennismylife/TML-Database/master/'
-    YEARS_TO_LOAD = list(range(2019, 2026))
+    YEARS_TO_LOAD = list(range(2019, 2027))
     df_stats_list = []
     
     STATS_COLS_TO_KEEP = [
